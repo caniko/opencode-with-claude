@@ -1,10 +1,11 @@
-import { existsSync, readFileSync } from "fs"
-import { createRequire } from "module"
 import type { AddressInfo } from "net"
-import { dirname, join } from "path"
 import { classifyProxyLog, type LogFn } from "./logger.ts"
 import type { ProfileConfig } from "./meridian-config.ts"
-import { startProxyServer } from "@rynfar/meridian"
+import {
+  describeMeridianSource,
+  loadMeridian,
+  type StartProxyServer,
+} from "./meridian-source.ts"
 
 // Enable passthrough mode so the proxy returns tool_use blocks to OpenCode
 // for execution, rather than running them internally. Without this, tool
@@ -33,48 +34,6 @@ export interface ProxyHandle {
 
 const DEFAULT_PORT = 3456
 const DEFAULT_HOST = "127.0.0.1"
-
-const MERIDIAN_PACKAGE = "@rynfar/meridian"
-
-/**
- * Read the installed Meridian version so it can be handed to
- * `startProxyServer({ version })`.
- *
- * Meridian falls back to the literal string `"unknown"` on /health unless the
- * host passes this in: its CLI reads its own package.json, but a library
- * consumer such as this plugin has to do the same. Without it, /health, the
- * dashboard, and any external monitor all report `"unknown"`.
- *
- * The manifest cannot be resolved as a subpath — Meridian's `exports` map only
- * declares `"."`, so `require.resolve("@rynfar/meridian/package.json")` throws
- * ERR_PACKAGE_PATH_NOT_EXPORTED. Resolve the entry point instead and walk up to
- * the owning package root. Returns undefined if anything is unexpected, which
- * simply leaves Meridian's own fallback in place.
- */
-export function resolveMeridianVersion(): string | undefined {
-  try {
-    let dir = dirname(createRequire(import.meta.url).resolve(MERIDIAN_PACKAGE))
-
-    for (let depth = 0; depth < 5; depth++) {
-      const manifest = join(dir, "package.json")
-      if (existsSync(manifest)) {
-        const parsed = JSON.parse(readFileSync(manifest, "utf8")) as {
-          name?: unknown
-          version?: unknown
-        }
-        if (parsed.name === MERIDIAN_PACKAGE && typeof parsed.version === "string") {
-          return parsed.version
-        }
-      }
-      const parent = dirname(dir)
-      if (parent === dir) break
-      dir = parent
-    }
-    return undefined
-  } catch {
-    return undefined
-  }
-}
 
 function formatHostForUrl(host: string): string {
   return host.includes(":") && !host.startsWith("[") ? `[${host}]` : host
@@ -109,7 +68,12 @@ export function getProxyBaseURL(
 export async function startProxy(opts: StartProxyOptions): Promise<ProxyHandle> {
   const { port = DEFAULT_PORT, log, profiles, defaultProfile } = opts
   const host = getProxyHost()
-  const version = resolveMeridianVersion()
+  const meridian = await loadMeridian(log)
+  const { startProxyServer, version } = meridian
+
+  // The plugin embeds Meridian, so this line is the only place a user (or a
+  // bug report) can see which build is actually running.
+  void log?.("info", describeMeridianSource(meridian))
 
   const origError = console.error
   console.error = (...args: unknown[]) => {
@@ -122,7 +86,7 @@ export async function startProxy(opts: StartProxyOptions): Promise<ProxyHandle> 
   }
 
   const tryStart = (p: number) =>
-    new Promise<Awaited<ReturnType<typeof startProxyServer>>>(
+    new Promise<Awaited<ReturnType<StartProxyServer>>>(
       (resolve, reject) => {
         startProxyServer({
           port: p,
@@ -175,7 +139,7 @@ export async function startProxy(opts: StartProxyOptions): Promise<ProxyHandle> 
     }
   }
 
-  let proxy: Awaited<ReturnType<typeof startProxyServer>>
+  let proxy: Awaited<ReturnType<StartProxyServer>>
   try {
     proxy = await attempt(typeof port === "string" ? parseInt(port, 10) : port)
   } catch (err) {

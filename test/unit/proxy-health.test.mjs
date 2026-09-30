@@ -244,7 +244,9 @@ test("a slow cold /health is still read as healthy", async () => {
 })
 
 test("resolveMeridianVersion: reports the installed package's version", async () => {
-  const { resolveMeridianVersion } = await freshImport()
+  const { resolveMeridianVersion } = await import(
+    `../../src/meridian-source.ts?t=${Date.now()}${Math.random()}`
+  )
   assert.equal(resolveMeridianVersion(), installedMeridianVersion())
 })
 
