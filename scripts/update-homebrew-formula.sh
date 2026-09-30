@@ -37,19 +37,24 @@ TMP="$(mktemp -d)"
 trap 'rm -rf "$TMP"' EXIT
 TARBALL="$TMP/$PACKAGE-$VERSION.tgz"
 
-# The registry can lag a few seconds behind `npm publish`; retry with backoff.
+# A new version's tarball can 404 for minutes after `npm publish` returns:
+# 1.10.3 and 1.10.4 were still missing when the old ~2.5 minute window ran out,
+# and both published fine. Back off to a one-minute ceiling and keep trying for
+# about eight minutes (the Release workflow gives this job 15).
+MAX_ATTEMPTS=12
+MAX_DELAY=60
 delay=5
-for attempt in 1 2 3 4 5 6; do
+for ((attempt = 1; attempt <= MAX_ATTEMPTS; attempt++)); do
   if curl -fsSL --retry 2 -o "$TARBALL" "$URL"; then
     break
   fi
-  if [[ $attempt -eq 6 ]]; then
+  if ((attempt == MAX_ATTEMPTS)); then
     echo "error: could not download $URL after $attempt attempts" >&2
     exit 1
   fi
-  echo "tarball not available yet (attempt $attempt), retrying in ${delay}s..." >&2
+  echo "tarball not available yet (attempt $attempt/$MAX_ATTEMPTS), retrying in ${delay}s..." >&2
   sleep "$delay"
-  delay=$((delay * 2))
+  delay=$((delay * 2 > MAX_DELAY ? MAX_DELAY : delay * 2))
 done
 
 if command -v sha256sum >/dev/null 2>&1; then
