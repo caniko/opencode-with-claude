@@ -1,5 +1,12 @@
 # Changelog
 
+## [1.11.1](https://github.com/ianjwhite99/opencode-with-claude/compare/v1.11.0...v1.11.1) (2026-09-30)
+
+
+### Bug Fixes
+
+* **deps:** restore @rynfar/meridian 1.79.0 ([#229](https://github.com/ianjwhite99/opencode-with-claude/issues/229)) ([5006882](https://github.com/ianjwhite99/opencode-with-claude/commit/5006882c9a010b0aa0c5516d20cc9870ccf6e5fc))
+
 ## [1.11.0](https://github.com/ianjwhite99/opencode-with-claude/compare/v1.10.4...v1.11.0) (2026-09-30)
 
 
