@@ -146,13 +146,69 @@ test("failed hook registration releases only its own shared runtime reference", 
 
 test("setup registers anthropic-scoped session hooks and an agent transform", () => {
   const names = [...ctx.hooks.session.keys()].sort()
-  assert.deepEqual(names, ["compaction", "context", "generate", "model.request", "title"])
+  assert.deepEqual(names, [
+    "compaction",
+    "context",
+    "generate",
+    "http.request",
+    "model.request",
+    "title",
+  ])
   for (const [name, list] of ctx.hooks.session) {
     for (const { options } of list) {
       assert.deepEqual(options, { providerID: "anthropic" }, `${name} must be scoped to anthropic`)
     }
   }
   assert.equal(ctx.hooks.agentTransforms.length, 1)
+})
+
+// Regression (#222): OpenCode 2's Anthropic transport merges its own betas
+// into `anthropic-beta` after `model.request` runs, and Meridian forwards
+// surviving betas to the Claude Agent SDK, which refuses custom betas on
+// subscription auth. `http.request` sees the assembled request, so the header
+// has to be dropped there rather than in `model.request`.
+test("http.request strips the beta header OpenCode re-adds after model.request", async () => {
+  const request = new Request("http://127.0.0.1:3456/v1/messages", {
+    method: "POST",
+    headers: {
+      "anthropic-beta": "interleaved-thinking-2025-05-14,compact-2026-01-12",
+      "anthropic-version": "2023-06-01",
+    },
+    body: "{}",
+  })
+
+  const input = await ctx.emit("http.request", {
+    sessionID: "sess-v2",
+    agent: "build",
+    model: { id: "claude-sonnet-4-5", providerID: "anthropic" },
+    kind: "primary",
+    request,
+  })
+
+  assert.equal(input.request.headers.get("anthropic-beta"), null)
+  assert.equal(
+    input.request.headers.get("anthropic-version"),
+    "2023-06-01",
+    "unrelated headers must survive",
+  )
+})
+
+test("http.request leaves non-anthropic providers alone", async () => {
+  const request = new Request("http://example.test/v1/messages", {
+    method: "POST",
+    headers: { "anthropic-beta": "some-beta" },
+    body: "{}",
+  })
+
+  const input = await ctx.emit("http.request", {
+    sessionID: "sess-v2",
+    agent: "build",
+    model: { id: "gpt", providerID: "openai" },
+    kind: "primary",
+    request,
+  })
+
+  assert.equal(input.request.headers.get("anthropic-beta"), "some-beta")
 })
 
 test("setup logs the proxy URL to stderr (v2 has no plugin log API)", () => {
@@ -331,6 +387,7 @@ test("cleanup disposes every registration and stops the proxy", async () => {
       "session.compaction",
       "session.context",
       "session.generate",
+      "session.http.request",
       "session.model.request",
       "session.title",
     ],

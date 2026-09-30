@@ -284,6 +284,25 @@ const setup: OpenCodeV2.Plugin["setup"] = async (ctx) => {
       ),
     )
 
+    // `model.request` is not the last word on headers: OpenCode 2's Anthropic
+    // transport merges its own betas — always `interleaved-thinking`, plus
+    // `compact-*` and `mid-conversation-output-config-*` once compaction or an
+    // output config is in play — into `anthropic-beta` in a later `prepare`
+    // step. Meridian forwards surviving betas to the Claude Agent SDK, and the
+    // CLI refuses custom betas on subscription auth ("custom betas are only
+    // available for api key users"), which takes the subprocess down mid-turn.
+    // `http.request` runs on the assembled request, so this is the last hop
+    // where the header can still be dropped.
+    registrations.push(
+      await ctx.session.hook(
+        "http.request",
+        (input) => {
+          input.request.headers.delete("anthropic-beta")
+        },
+        { providerID: ANTHROPIC },
+      ),
+    )
+
     // Every request that carries a system prompt: the agent loop, compaction,
     // titles, and plugin-driven generation.
     for (const name of ["context", "compaction", "title", "generate"] as const) {
