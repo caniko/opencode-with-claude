@@ -293,8 +293,11 @@ directory, for example `"plugins": ["/path/to/opencode-with-claude/dist"]`.
 `dist/index.js` has a single default export with `id`, `server()` and
 `setup()`. OpenCode 1.x calls `server()` and uses the returned hooks
 (`config`, `chat.headers`, ...). OpenCode 2 calls `setup(ctx)` and the plugin
-registers `session.hook("model.request")` (base URL and Meridian headers) and
-the system-prompt hooks on the context. The module deliberately has no other
+registers `session.hook("model.request")` (base URL and Meridian headers),
+`session.hook("http.request")` (drops the `anthropic-beta` header OpenCode's
+Anthropic transport re-adds after `model.request` — Meridian talks to the
+Claude Agent SDK, which refuses custom betas on subscription auth), and the
+system-prompt hooks on the context. The module deliberately has no other
 exports: OpenCode 1.17 and 1.18 load every export as a plugin, so a second one
 would start a second proxy.
 
