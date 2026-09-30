@@ -23,14 +23,18 @@ async function freshImport() {
   return await import(`../../src/proxy.ts?t=${Date.now()}${Math.random()}`)
 }
 
-async function withStubHealth({ payload, status = 200 }, assertions) {
+async function withStubHealth({ payload, status = 200, delayMs = 0 }, assertions) {
   const server = createServer((req, res) => {
     if (!req.url?.startsWith("/health")) {
       res.writeHead(404).end()
       return
     }
-    res.writeHead(status, { "content-type": "application/json" })
-    res.end(JSON.stringify(payload))
+    const answer = () => {
+      res.writeHead(status, { "content-type": "application/json" })
+      res.end(JSON.stringify(payload))
+    }
+    if (delayMs > 0) setTimeout(answer, delayMs).unref()
+    else answer()
   })
   await new Promise((resolve) => server.listen(0, "127.0.0.1", resolve))
 
@@ -220,6 +224,22 @@ test("unhealthy: not ok, version still reported", async () => {
     assert.equal(result.ok, false)
     assert.equal(result.version, "1.60.0")
     assert.ok(findLog(logs, "error", "Not logged in"))
+  })
+})
+
+// Meridian's first /health probes the Claude login and answers in ~5s on a
+// cold auth cache, which the original 5s budget lost to by a hair — a healthy
+// proxy reported "Health check failed" on every cold start. Stall the stub past
+// that old budget and assert the check still waits.
+test("a slow cold /health is still read as healthy", async () => {
+  await withStubHealth({ payload: healthy(), delayMs: 6_000 }, ({ result, logs }) => {
+    assert.equal(result.ok, true)
+    assert.equal(result.version, "1.60.0")
+    assert.equal(
+      findLog(logs, "error", "Health check failed"),
+      undefined,
+      "a slow but healthy proxy must not be reported as failed",
+    )
   })
 })
 

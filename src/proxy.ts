@@ -247,13 +247,22 @@ function describeRenewalWindow(days: number | undefined): string {
   return `in ${days} days`
 }
 
+/**
+ * Meridian's first /health probes the Claude login, which takes ~5s on a cold
+ * auth cache (subsequent calls answer in tens of milliseconds). A tighter
+ * budget than that reports "Health check failed" against a proxy that is in
+ * fact healthy — the one startup line a user is most likely to take for a real
+ * fault. Nothing awaits this check, so the extra headroom costs no latency.
+ */
+const HEALTH_TIMEOUT_MS = 15_000
+
 export async function checkProxyHealth(
   port: string | number,
   log: LogFn | undefined
 ): Promise<HealthResult> {
   try {
     const res = await fetch(getProxyBaseURL(port) + "/health", {
-      signal: AbortSignal.timeout(5_000),
+      signal: AbortSignal.timeout(HEALTH_TIMEOUT_MS),
     })
     const body = await res.json() as Record<string, unknown>
     // Meridian answers with the literal string "unknown" when it has no
